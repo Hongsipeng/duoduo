@@ -200,7 +200,7 @@ impl Default for AppSettings {
             show_key_bubbles: true,
             sound_enabled: true,
             autostart: false,
-            cat_breed: default_cat_breed(),
+            cat_breed: "duoduo".to_string(),
             mcp_enabled: default_mcp_enabled(),
             mcp_port: default_mcp_port(),
             keyboard_layout: default_keyboard_layout(),

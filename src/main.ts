@@ -156,6 +156,10 @@ let loading3dPromise: Promise<void> | null = null;
 let webgl3dUnavailable = false;
 let isWin7Ulw = false;
 let active3d = false;
+let photoSkinAvailable = false;
+let photoSkinCatId = '';
+let photoSkinRequest = 0;
+let photoSkinUrls: string[] = [];
 let privacyActive = false;
 let gameActive = false;
 
@@ -174,10 +178,60 @@ function wants3DNow(): boolean {
   return (
     settings.renderMode !== '2d' &&
     settings.catBreed !== 'dafeiyu' &&
+    !photoSkinAvailable &&
     !tailPickerOpen &&
     !isWin7Ulw &&
     !webgl3dUnavailable
   );
+}
+
+async function loadPhotoForCat(id: string): Promise<void> {
+  if (photoSkinCatId === id) return;
+  photoSkinCatId = id;
+  const request = ++photoSkinRequest;
+  photoSkinAvailable = false;
+  engine.setPhotoSkin(null);
+  photoSkinUrls.forEach((url) => URL.revokeObjectURL(url));
+  photoSkinUrls = [];
+  const urls: string[] = [];
+  try {
+    const parts = ['', 'body', 'head', 'left-paw', 'right-paw', 'tail'] as const;
+    const data = await Promise.all(parts.map((part) =>
+      invoke<number[] | null>('get_cat_photo', { id, part }),
+    ));
+    if (!data[0]?.length || request !== photoSkinRequest) return;
+    const images = await Promise.all(data.map(async (bytes) => {
+      if (!bytes?.length) return null;
+      const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+      urls.push(url);
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      return image;
+    }));
+    if (request !== photoSkinRequest) {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+      return;
+    }
+    if (!images[0]) {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+      return;
+    }
+    photoSkinUrls = urls;
+    photoSkinAvailable = true;
+    engine.setPhotoSkin({
+      base: images[0],
+      body: images[1],
+      head: images[2],
+      leftPaw: images[3],
+      rightPaw: images[4],
+      tail: images[5],
+    });
+    syncMenuUI();
+  } catch (error) {
+    urls.forEach((url) => URL.revokeObjectURL(url));
+    console.warn('加载照片外观失败:', error);
+  }
 }
 
 function syncEngine3DState(): void {
@@ -332,6 +386,7 @@ function syncMenuUI(): void {
     tailKeysCountEl.textContent = `${tailIds.length} 键`;
   }
   const activeCat = catList.find((c) => c.id === settings.catBreed) ?? catList[0];
+  void loadPhotoForCat(activeCat?.id || 'black');
   renderBreedPills();
 
   const renderMode: DesktopRenderMode = settings.renderMode === '2d' ? '2d' : '3d';
@@ -349,8 +404,9 @@ function syncMenuUI(): void {
     btn.classList.toggle('active', btn.dataset.collar === collarColor);
   });
   const collarRowEl = document.getElementById('collar-row');
+  document.getElementById('render-mode-row')?.classList.toggle('hidden', photoSkinAvailable);
   if (collarRowEl) {
-    collarRowEl.classList.toggle('hidden', renderMode === '2d' || settings.catBreed === 'dafeiyu');
+    collarRowEl.classList.toggle('hidden', renderMode === '2d' || settings.catBreed === 'dafeiyu' || photoSkinAvailable);
   }
 
   const headphoneMode: HeadphoneMode =
@@ -362,7 +418,7 @@ function syncMenuUI(): void {
   });
   const headphoneRowEl = document.getElementById('headphone-row');
   if (headphoneRowEl) {
-    headphoneRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+    headphoneRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu' || photoSkinAvailable);
   }
 
   const headerEl = document.getElementById('menu-header');

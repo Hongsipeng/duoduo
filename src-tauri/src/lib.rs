@@ -293,6 +293,35 @@ fn get_cats() -> Vec<CatSkinConfig> {
 }
 
 #[tauri::command]
+fn get_cat_photo(id: String, part: Option<String>) -> Option<Vec<u8>> {
+    let id = sanitize_cat_id(&id);
+    let suffix = match part.as_deref().unwrap_or("") {
+        "" => "",
+        "body" => "-body",
+        "head" => "-head",
+        "left-paw" => "-left-paw",
+        "right-paw" => "-right-paw",
+        "tail" => "-tail",
+        _ => return None,
+    };
+    let dir = config::app_data_dir().join("cat-photos");
+    // A user's replacement photo and its matching layers form a single set.
+    if id != "duoduo" || dir.join("duoduo.png").is_file() {
+        return std::fs::read(dir.join(format!("{id}{suffix}.png"))).ok();
+    }
+    let bytes: &[u8] = match suffix {
+        "" => include_bytes!("../assets/duoduo/duoduo.png"),
+        "-body" => include_bytes!("../assets/duoduo/duoduo-body.png"),
+        "-head" => include_bytes!("../assets/duoduo/duoduo-head.png"),
+        "-left-paw" => include_bytes!("../assets/duoduo/duoduo-left-paw.png"),
+        "-right-paw" => include_bytes!("../assets/duoduo/duoduo-right-paw.png"),
+        "-tail" => include_bytes!("../assets/duoduo/duoduo-tail.png"),
+        _ => return None,
+    };
+    Some(bytes.to_vec())
+}
+
+#[tauri::command]
 fn get_game_active() -> bool {
     game_detect::is_game_active()
 }
@@ -2390,6 +2419,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             get_cats,
+            get_cat_photo,
             get_game_active,
             get_mcp_config,
             get_obs_url,

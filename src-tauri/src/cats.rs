@@ -456,6 +456,8 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
             accent_side_color: Some("#2563eb".to_string()),
             spots: vec![],
         },
+        serde_json::from_str(include_str!("../assets/duoduo/skin.json"))
+            .expect("invalid bundled Duoduo skin"),
     ]
 }
 

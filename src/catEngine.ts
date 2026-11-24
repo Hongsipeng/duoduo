@@ -17,6 +17,43 @@ export type CatBreed = 'black' | 'ragdoll' | 'dafeiyu';
 export type KeyboardOrientation = 'cat' | 'viewer';
 export type TailKeyMode = 'smart' | 'custom' | 'edge' | 'off';
 
+export interface PhotoSkin {
+  base: HTMLImageElement;
+  body: HTMLImageElement | null;
+  head: HTMLImageElement | null;
+  leftPaw: HTMLImageElement | null;
+  rightPaw: HTMLImageElement | null;
+  tail: HTMLImageElement | null;
+}
+
+// The shoulder and toe positions depend on the pose in the source photo.
+// Measure each transparent foreleg layer once, in normalized image coordinates.
+function measureForeleg(image: HTMLImageElement): { shoulder: Vec2; toe: Vec2 } | null {
+  const sample = document.createElement('canvas');
+  sample.width = 64;
+  sample.height = 96;
+  const ctx = sample.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0, sample.width, sample.height);
+  const pixels = ctx.getImageData(0, 0, sample.width, sample.height).data;
+  const centers: Vec2[] = [];
+  for (let y = 0; y < sample.height; y++) {
+    let sum = 0;
+    let count = 0;
+    for (let x = 0; x < sample.width; x++) {
+      if (pixels[(y * sample.width + x) * 4 + 3] < 128) continue;
+      sum += x + 0.5;
+      count++;
+    }
+    if (count) centers.push({ x: sum / count / sample.width, y: (y + 0.5) / sample.height });
+  }
+  if (centers.length < 4) return null;
+  return {
+    shoulder: centers[Math.floor((centers.length - 1) * 0.12)],
+    toe: centers[Math.round((centers.length - 1) * 0.92)],
+  };
+}
+
 export const DEFAULT_TAIL_KEY_IDS: readonly string[] = ['enter', 'space', 'bs', 'esc'];
 
 export const TAIL_KEY_PRESETS = {
@@ -231,6 +268,11 @@ export class KuroCatEngine {
   public onAfterRender: (() => void) | null = null;
   public catBreed: CatBreed = 'black';
   public customSkin: ResolvedSkin | null = null;
+  private photoSkin: PhotoSkin | null = null;
+  private photoLeftTap = 0;
+  private photoRightTap = 0;
+  private photoLeftArm: ReturnType<typeof measureForeleg> = null;
+  private photoRightArm: ReturnType<typeof measureForeleg> = null;
   public keyboardLayout: KeyboardLayoutId = '65';
   public keyboardOrientation: KeyboardOrientation = 'cat';
   public tailKeyMode: TailKeyMode = 'smart';
@@ -587,6 +629,16 @@ export class KuroCatEngine {
       this.customSkin = null;
     }
     this.syncLayoutPositions();
+    this.wakeRendering();
+  }
+
+  public setPhotoSkin(photo: PhotoSkin | null): void {
+    if (this.photoSkin === photo) return;
+    this.photoSkin = photo;
+    this.photoLeftArm = photo?.leftPaw ? measureForeleg(photo.leftPaw) : null;
+    this.photoRightArm = photo?.rightPaw ? measureForeleg(photo.rightPaw) : null;
+    this.photoLeftTap = 0;
+    this.photoRightTap = 0;
     this.wakeRendering();
   }
 
@@ -2210,6 +2262,77 @@ export class KuroCatEngine {
     // Layer 1: Mini mouse & mechanical keyboard (both hop organically on grumpy tail desk-slam!)
     this.drawMiniMouse(ctx);
     this.drawKeyboard(ctx);
+
+    if (this.photoSkin) {
+      const photo = this.photoSkin;
+      const height = 310 * (1 + breath * 0.011);
+      const width = height * (photo.base.naturalWidth / photo.base.naturalHeight);
+      const centerX = this.catCenterX;
+      const bottomY = this.catBaseY + 20;
+      const left = centerX - width / 2;
+      const top = bottomY - height;
+      const reachFollow = 1 - Math.exp(-26 * this.lastDt);
+      const leftActive = this.leftPaw.mode === 'poke' || this.leftPaw.mode === 'mouse';
+      this.photoLeftTap += ((leftActive ? 1 : 0) - this.photoLeftTap) * reachFollow;
+      this.photoRightTap += ((this.rightPaw.mode === 'poke' ? 1 : 0) - this.photoRightTap) * reachFollow;
+      ctx.save();
+      if (photo.body && photo.head && photo.leftPaw && photo.rightPaw && this.photoLeftArm && this.photoRightArm) {
+        if (photo.tail) {
+          const tailRootX = centerX + width * 0.32;
+          const tailRootY = top + height * 0.76;
+          ctx.save();
+          ctx.translate(tailRootX, tailRootY);
+          ctx.rotate(Math.sin(this.elapsed * 1.7) * 0.10 + this.typingSway * 0.018);
+          ctx.drawImage(photo.tail, 0, -9, 150, 70);
+          ctx.restore();
+        }
+        ctx.drawImage(photo.body, left, top, width, height);
+        const drawArm = (
+          armImage: HTMLImageElement,
+          paw: PawState,
+          reach: number,
+          arm: NonNullable<ReturnType<typeof measureForeleg>>,
+        ) => {
+          const pivotX = left + arm.shoulder.x * width;
+          const pivotY = top + arm.shoulder.y * height;
+          const restX = left + arm.toe.x * width;
+          const restY = top + arm.toe.y * height;
+          const clickPress = paw.side === 'left'
+            ? Math.max(this.mouseLeftPress, this.mouseRightPress, this.mouseMiddlePress)
+            : 0;
+          const targetX = restX + (paw.target.x - restX) * reach;
+          const targetY = restY + (paw.target.y + clickPress * 5 - restY) * reach;
+          const baseX = restX - pivotX;
+          const baseY = restY - pivotY;
+          const desiredX = targetX - pivotX;
+          const desiredY = targetY - pivotY;
+          const baseAngle = Math.atan2(baseY, baseX);
+          const desiredAngle = Math.atan2(desiredY, desiredX);
+          const stretch = Math.max(0.82, Math.min(2.0, Math.hypot(desiredX, desiredY) / Math.hypot(baseX, baseY)));
+          ctx.save();
+          ctx.translate(pivotX, pivotY);
+          ctx.rotate(desiredAngle);
+          ctx.scale(stretch, 1 + (stretch - 1) * 0.08);
+          ctx.rotate(-baseAngle);
+          ctx.drawImage(armImage, left - pivotX, top - pivotY, width, height);
+          ctx.restore();
+        };
+        drawArm(photo.leftPaw, this.leftPaw, this.photoLeftTap, this.photoLeftArm);
+        drawArm(photo.rightPaw, this.rightPaw, this.photoRightTap, this.photoRightArm);
+        ctx.translate(centerX + this.faceTurnX * 0.32, top + height * 0.60 + this.typingHunch * 4);
+        ctx.rotate(this.headTilt * 0.7);
+        ctx.drawImage(photo.head, -width / 2, -height * 0.60, width, height);
+      } else {
+        ctx.drawImage(photo.base, left, top, width, height);
+      }
+      ctx.restore();
+      if (this.showKeyBubbles && !this.privacyMode) {
+        this.drawKeyBubbles(ctx);
+        this.drawMouseBadges(ctx);
+      }
+      ctx.restore();
+      return;
+    }
 
     // Layer 2: Plush cat tail (above keyboard so near-tail key pats & angry desk-thumps land cleanly, yet tucked behind hip!)
     this.drawTail(ctx);

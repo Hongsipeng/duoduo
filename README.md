@@ -148,11 +148,15 @@ KuroCat `v4.0.0+` 单文件程序原生内置 **Stdio** 与 **本机 Streamable 
 | `delete_cat` | 删除指定自定义猫咪（或重置内置外观） |
 | `get_settings` / `update_settings` | 读取或实时修改缩放比例、按键气泡、呼噜声、置顶、穿透锁定与开机自启 |
 
+桌面版首次启动时默认显示照片桌宠「多多」。多多的照片、前爪和尾巴图层已内置，分发桌面安装包或绿色版即可。已有配置的用户会继续看到上次选中的猫咪。
+
 自定义猫咪配置保存在：
 - **Windows**：`%APPDATA%\kuro-cat-pet\cats.json`
 - **macOS**：`~/Library/Application Support/kuro-cat-pet/cats.json`
 
 也可手动编辑，桌宠自动实时热重载。
+
+照片外观可放在同一配置目录下的 `cat-photos/<猫咪 ID>.png`，需要透明背景。选中该猫咪时桌面会使用照片版 2D 外观。若另外提供同尺寸的 `<ID>-body.png`、`<ID>-head.png`、`<ID>-left-paw.png` 和 `<ID>-right-paw.png` 透明分层图，头部会跟随视线轻摆，前爪会分别响应敲键与鼠标；可选的 `<ID>-tail.png` 在身体后方摆动。只提供单张照片时显示静态外观。
 
 ## 🛠️ 本地源码构建
 
